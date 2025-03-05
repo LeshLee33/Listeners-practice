@@ -1,10 +1,17 @@
+import numpy as np
 import pandas as pd
 import json
 import os
 from datetime import datetime
 
-DATA_FRAME = ["id", "Статус", "Вид ДОП", "Подразделение", "Форма обучения", "Восстановление", "Год рождения", "Пол",
-              "Гражданство", "Страна", "Регион", "Город", "Образование", "Образовательное учреждение",
+from sqlalchemy.orm import Session
+
+from .database_operations import load_to_database
+
+counter = 0
+
+DATA_FRAME = ["id", "Статус", "Вид ДОП", "Подразделение", "Формат", "Форма обучения", "Восстановление", "Год рождения",
+              "Пол", "Гражданство", "Страна", "Регион", "Город", "Образование", "Образовательное учреждение",
               "Направление подготовки", "Квалификация", "Категория слушателей 1", "Категория слушателей 2",
               "Категория слушателей 3", "Студент ТУСУРа", "Должность", "Место работы", "Дата договора", "Курс", "Часов",
               "Юр. лицо", "Начало обучения", "Окончание обучения", "Название организации", "Стоимость", "Оплачено",
@@ -20,10 +27,12 @@ def read_file(route: str):
 
 
 def _edit_data(data: pd.DataFrame):
+    global counter
     new_data = {"id": [],
                 "Статус": [],
                 "Вид ДОП": [],
                 "Подразделение": [],
+                "Формат": [],
                 "Форма обучения": [],
                 "Восстановление": [],
                 "Год рождения": [],
@@ -57,6 +66,7 @@ def _edit_data(data: pd.DataFrame):
                           "Статус": [],
                           "Вид ДОП": [],
                           "Подразделение": [],
+                          "Формат": [],
                           "Форма обучения": [],
                           "Восстановление": [],
                           "Год рождения": [],
@@ -91,6 +101,7 @@ def _edit_data(data: pd.DataFrame):
                 "Статус": "",
                 "Вид ДОП": "",
                 "Подразделение": "",
+                "Формат": "",
                 "Форма обучения": "",
                 "Восстановление": False,
                 "Год рождения": 0,
@@ -162,11 +173,24 @@ def _edit_data(data: pd.DataFrame):
             city_result = city
         note["Город"] = city_result
 
+        if str(data.iloc[i]["Дата договора"]) == "" or str(data.iloc[i]["Дата договора"]) == "NaT" or "0000-00-00" in str(data.iloc[i]["Дата договора"]):
+            flag = 1
+        note["Дата договора"] = str(data.iloc[i]["Дата договора"])
+
+        if str(data.iloc[i]["Начало обучения"]) == "" or str(data.iloc[i]["Начало обучения"]) == "NaT" or "0000-00-00" in str(data.iloc[i]["Начало обучения"]):
+            flag = 1
+        note["Начало обучения"] = str(data.iloc[i]["Начало обучения"])
+
+        if str(data.iloc[i]["Окончание обучения"]) == "" or str(data.iloc[i]["Окончание обучения"]) == "NaT" or "0000-00-00" in str(data.iloc[i]["Окончание обучения"]):
+            flag = 1
+        note["Окончание обучения"] = str(data.iloc[i]["Окончание обучения"])
+
         note["Город"] = _cast_city(data.iloc[i]["Город"])
         note["id"] = data.iloc[i]["id"]
         note["Статус"] = data.iloc[i]["Статус"]
         note["Вид ДОП"] = data.iloc[i]["Вид ДОП"]
         note["Подразделение"] = data.iloc[i]["Подразделение"]
+        note["Формат"] = data.iloc[i]["Формат"]
         note["Форма обучения"] = data.iloc[i]["Форма обучения"]
         note["Восстановление"] = _cast_logicals(data.iloc[i]["Восстановление"])
         note["Пол"] = data.iloc[i]["Пол"]
@@ -180,12 +204,9 @@ def _edit_data(data: pd.DataFrame):
         note["Студент ТУСУРа"] = _cast_logicals(data.iloc[i]["Студент ТУСУРа"])
         note["Должность"] = data.iloc[i]["Должность"]
         note["Место работы"] = data.iloc[i]["Место работы"]
-        note["Дата договора"] = data.iloc[i]["Дата договора"]
         note["Курс"] = data.iloc[i]["Курс"]
         note["Часов"] = data.iloc[i]["Часов"]
-        note["Юр. лицо"] = _cast_logicals(data.iloc[i]["Юр. лицо"]) if data.iloc[i]["Название организации"] != "" else True
-        note["Начало обучения"] = data.iloc[i]["Начало обучения"]
-        note["Окончание обучения"] = data.iloc[i]["Окончание обучения"]
+        note["Юр. лицо"] = _cast_logicals(data.iloc[i]["Юр. лицо"]) if data.iloc[i]["Название организации"] != "" else False
         note["Название организации"] = data.iloc[i]["Название организации"]
         note["Стоимость"] = _cast_price(str(data.iloc[i]["Стоимость"]))
         note["Оплачено"] = _cast_price(str(data.iloc[i]["Оплачено"]))
@@ -196,6 +217,7 @@ def _edit_data(data: pd.DataFrame):
             if flag == 0:
                 new_data[x].append(note[x])
             elif flag == 1:
+                counter += 1
                 incorrect_new_data[x].append(note[x])
     return new_data, incorrect_new_data
 
@@ -214,9 +236,11 @@ def _create_empty_excel(columns: list, filename: str, sheet_name: str = 'Sheet1'
     return filepath
 
 
-def write_to_file(data: dict, filename: str):
+def write_data(data: dict, filename: str, database: Session):
+    filename = filename[:filename.find(".")]
     df_data = pd.DataFrame(data)
     new_data, incorrect_new_data = _edit_data(df_data)
+    print("Исходные данные обработаны")
 
     filepath_correct = _create_empty_excel(columns=DATA_FRAME, filename=(filename + '_correct_data.xlsx'))
     filepath_incorrect = _create_empty_excel(columns=DATA_FRAME, filename=(filename + '_incorrect_data.xlsx'))
@@ -231,6 +255,11 @@ def write_to_file(data: dict, filename: str):
     with pd.ExcelWriter(filepath_incorrect, mode='a', engine='openpyxl', if_sheet_exists='overlay') as writer:
         new_incorrect_df.to_excel(writer, sheet_name='Sheet1',
                                   startrow=writer.sheets['Sheet1'].max_row, header=False, index=False)
+    print("Данные записаны в файлы .xlsx")
+
+    load_to_database(new_data, database)
+    print("Корректные данные загружены в БД")
+    print("Строк некорректных данных: ", (counter / 34))
 
     return filepath_correct, filepath_incorrect
 
@@ -250,6 +279,8 @@ def _cast_country(country: str):
 
 
 def _cast_city(city: str) -> str:
+    if city == "":
+        return "Ошибка"
     if isinstance(city, float):
         return "Ошибка"
     if isinstance(city, int):
@@ -285,22 +316,30 @@ def _cast_city(city: str) -> str:
 
 
 def _cast_region(region: str):
+    if region == "":
+        return "Ошибка"
     if isinstance(region, float):
         return "Ошибка"
     if isinstance(region, int):
         return "Ошибка"
-    region = region.replace('АР', "Автономная Республика") if 'АР' in region and 'еспулика' not in region and region[region.find('АР') - 1] != "" and region[region.find('АР') + 2] == " " else region
-    region = region.replace('АО', "автономная область") if 'АО' in region and 'область' not in region and region[region.find('АО') - 1] == " " and region[region.find('АО') - 2] == "я" else region
-    region = region.replace('АО', "автономный округ") if 'АО' in region and 'округ' not in region and region[region.find('АО') - 1] == " " else region
+    region = region.replace('АР', "Автономная Республика") if 'АР' in region and 'еспулика' not in region and region[
+        region.find('АР') - 1] != "" and region[region.find('АР') + 2] == " " else region
+    region = region.replace('АО', "автономная область") if 'АО' in region and 'область' not in region and region[
+        region.find('АО') - 1] == " " and region[region.find('АО') - 2] == "я" else region
+    region = region.replace('АО', "автономный округ") if 'АО' in region and 'округ' not in region and region[
+        region.find('АО') - 1] == " " else region
     region = region.replace('АО', "") if 'АО' in region and 'округ' in region else region
-    region = region.replace('а.о.', "автономная область") if 'а.о.' in region and 'область' not in region and region[region.find('а.о.') - 1] == " " and region[region.find('а.о.') - 2] == "я" else region
-    region = region.replace('а.о.', "автономный округ") if 'а.о.' in region and 'округ' not in region and region[region.find('а.о.') - 1] == " " else region
+    region = region.replace('а.о.', "автономная область") if 'а.о.' in region and 'область' not in region and region[
+        region.find('а.о.') - 1] == " " and region[region.find('а.о.') - 2] == "я" else region
+    region = region.replace('а.о.', "автономный округ") if 'а.о.' in region and 'округ' not in region and region[
+        region.find('а.о.') - 1] == " " else region
     region = region.replace('а.о.', "") if 'а.о.' in region and 'округ' in region else region
     region = region.replace('Обл.', "область") if 'Обл.' in region and 'область' not in region else region
     region = region.replace('Обл ', "область") if 'Обл' in region and 'область' not in region else region
     region = region.replace('обл.', "область") if 'обл.' in region and 'область' not in region else region
     region = region.replace('обл ', "область") if 'обл' in region and 'область' not in region else region
-    region = region.replace(' обл', "область") if 'обл' in region and 'область' not in region and region[-1] == "л" else region
+    region = region.replace(' обл', "область") if 'обл' in region and 'область' not in region and region[
+        -1] == "л" else region
     region = region.replace('Область', "область") if 'Область' else region
     region = region.replace('Р.', "Республика") if 'Р.' in region and 'еспублика' not in region else region
     region = region.replace('Р ', "Республика ") if 'Р ' in region and 'еспублика' not in region else region
@@ -314,8 +353,11 @@ def _cast_region(region: str):
     region = region.replace('Рес ', "Республика") if 'Рес' in region and 'еспублика' not in region else region
     region = region.replace('рес.', "Республика") if 'рес.' in region and 'еспублика' not in region else region
     region = region.replace('рес ', "Республика") if 'рес' in region and 'еспублика' not in region else region
-    region = region.replace('область', " область") if 'область' in region and region[region.find('область') - 1] != "" and region[region.find('область') - 1] != " " else region
-    region = region.replace('Республика', "Республика ") if 'Республика' in region and " Республика" not in region and region[region.find('Республика') + 10] != "" and region[region.find('Республика') + 10] != " " else region
+    region = region.replace('область', " область") if 'область' in region and region[
+        region.find('область') - 1] != "" and region[region.find('область') - 1] != " " else region
+    region = region.replace('Республика', "Республика ") if 'Республика' in region and " Республика" not in region and \
+                                                            region[region.find('Республика') + 10] != "" and region[
+                                                                region.find('Республика') + 10] != " " else region
     region = region.replace('республика', "Республика") if 'республика' in region else region
     for symbol in SYMBOLS_REMOVE:
         region = region.replace(symbol, "")
@@ -327,13 +369,16 @@ def _cast_region(region: str):
     return result
 
 
-def _cast_birth_year(year: int):
-    return -1 if (datetime.now().year - year <= 16) or (datetime.now().year - year >= 120) else year
+def _cast_birth_year(year: int) -> int:
+    return -1 if (datetime.now().year - year <= 16) or (datetime.now().year - year >= 120) or np.isnan(year) else year
 
 
-def _cast_logicals(yes_no: str):
+def _cast_logicals(yes_no: str) -> bool:
     return True if yes_no == "Да" else False
 
 
 def _cast_price(price: str):
-    return int(price.replace(" ", "")) if " " in price else price
+    result = price.replace(' ', '') if ' ' in price else price
+    result = result.replace('\xa0', '') if '\xa0' in result else result
+    result = result[:result.find(".")] if "." in result else result
+    return int(result) if result != "nan" else 0
